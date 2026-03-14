@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace files (if generated locally)
+go.work
+go.work.sum
+
+# Build output directories
+bin/
+dist/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+
+# Editor directories and swap files
+.vscode/
+.idea/
+*.swp
+*.swo
