@@ -7,5 +7,6 @@ func main() {
 	//Constants()
 	//loop()
 	//condition()
-	switchStatement()
+	//switchStatement()
+	arrays()
 }
