@@ -6,5 +6,6 @@ func main() {
 	//Variables()
 	//Constants()
 	//loop()
-	condition()
+	//condition()
+	switchStatement()
 }
