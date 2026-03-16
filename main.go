@@ -4,5 +4,7 @@ func main() {
 	//fmt.Println(HelloWorld())
 	//fmt.Println(Values())
 	//Variables()
-	Constants()
+	//Constants()
+	//loop()
+	condition()
 }
