@@ -8,5 +8,6 @@ func main() {
 	//loop()
 	//condition()
 	//switchStatement()
-	arrays()
+	//arrays()
+	slicePrac()
 }
