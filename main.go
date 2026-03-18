@@ -9,5 +9,6 @@ func main() {
 	//condition()
 	//switchStatement()
 	//arrays()
-	slicePrac()
+	//slicePrac()
+	mapss()
 }
