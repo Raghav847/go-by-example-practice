@@ -10,5 +10,7 @@ func main() {
 	//switchStatement()
 	//arrays()
 	//slicePrac()
-	mapss()
+	//mapss()
+	//functions()
+	MultiReturn()
 }
