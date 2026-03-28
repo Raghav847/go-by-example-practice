@@ -1,16 +1,18 @@
 package main
 
+import "fmt"
+
 func main() {
-	//fmt.Println(HelloWorld())
-	//fmt.Println(Values())
-	//Variables()
-	//Constants()
-	//loop()
-	//condition()
-	//switchStatement()
-	//arrays()
-	//slicePrac()
-	//mapss()
-	//functions()
-	MultiReturn()
+	//test every func here
+	i := 1
+	fmt.Println("initial:", i)
+
+	zeroval(i)
+	fmt.Println("zeroval:", i)
+
+	zeroptr(&i)
+	fmt.Println("zeroptr", i)
+
+	fmt.Println("pointer:", &i)
+
 }
