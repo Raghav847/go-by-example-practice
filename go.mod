@@ -1,3 +1,3 @@
-module gobyexample
+module github.com/Raghav847/go-by-example-practice
 
-go 1.25.0
+go 1.23
