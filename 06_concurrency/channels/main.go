@@ -3,5 +3,10 @@ package main
 import "fmt"
 
 func main() {
-	fmt.Println("TODO: implement channels example")
+	messages := make(chan string)
+
+	go func() { messages <- "ping" }()
+
+	msg := <-messages
+	fmt.Println(msg)
 }
