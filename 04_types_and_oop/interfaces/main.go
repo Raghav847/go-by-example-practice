@@ -1,34 +1,45 @@
 package main
 
 import (
-	"fmt"
+	"bytes"
+	"encoding/json"
+	"io"
 	"log"
-	"strconv"
+	"os"
 )
 
-type Book struct {
-	Title  string
-	Author string
+type Customer struct {
+	Name string
+	Age  int
 }
 
-func (b Book) String() string {
-	return fmt.Sprintf("Book: %s - %s", b.Title, b.Author)
-}
+func (c *Customer) WriteJSON(w io.Writer) error {
+	js, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
 
-type Count int
-
-func (c Count) String() string {
-	return strconv.Itoa(int(c))
-}
-
-func WriteLog(s fmt.Stringer) {
-	log.Print(s.String())
+	_, err = w.Write(js)
+	return err
 }
 
 func main() {
-	book := Book{"Alice in Wonderland", "Lewis Carrol"}
-	WriteLog(book)
+	c := &Customer{Name: "Bane", Age: 25}
 
-	count := Count(3)
-	WriteLog(count)
+	var buf bytes.Buffer
+	err := c.WriteJSON(&buf)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	f, err := os.Create("/tmp/customer")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	err = c.WriteJSON(f)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
