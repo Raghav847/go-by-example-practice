@@ -25,6 +25,8 @@ func get(url string, ch chan<- result) {
 }
 
 func main() {
+	stopper := time.After(3 * time.Second)
+
 	results := make(chan result)
 	list := []string{
 		"https://www.google.com",
@@ -41,12 +43,17 @@ func main() {
 	}
 
 	for range list {
-		r := <-results
+		select {
+		case r := <-results:
+			if r.err != nil {
+				log.Printf("%-20s %s\n", r.url, r.err)
+			} else {
+				log.Printf("%-20s %s\n", r.url, r.latency)
+			}
 
-		if r.err != nil {
-			log.Printf("%-20s %s\n", r.url, r.err)
-		} else {
-			log.Printf("%-20s %s\n", r.url, r.latency)
+		case <-stopper:
+			log.Fatal("timeout")
 		}
+
 	}
 }
