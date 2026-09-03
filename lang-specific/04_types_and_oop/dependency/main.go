@@ -15,7 +15,7 @@ type SimpleDataStore struct {
 }
 
 func (sds SimpleDataStore) UserNameForID(userID string) (string, bool) {
-	name, ok := userData[userID]
+	name, ok := sds.userData[userID]
 	return name, ok
 }
 
