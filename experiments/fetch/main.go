@@ -1,28 +1,48 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 )
 
-type Post struct {
-	ID    int    `json:"id"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
+type QuoteData struct {
+	ID     int    `json:"id"`
+	Quote  string `json:"quote"`
+	Author string `json:"author"`
 }
 
-func main() {
-	resp, err := http.Get("https://jsonplaceholder.typicode.com/posts/1")
+type QuoteResponse struct {
+	Quotes []QuoteData `json:"quotes"`
+}
+
+func getData(w http.ResponseWriter, r *http.Request) {
+	resp, err := http.Get("https://dummyjson.com/quotes")
 	if err != nil {
-		panic(err)
+		http.Error(w, "cannot get data", http.StatusInternalServerError)
+		return
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "cannot read data", http.StatusInternalServerError)
+		return
+	}
 
-	var post Post
-	json.Unmarshal(body, &post)
-	fmt.Printf("Title: %s\n", post.Title)
+	var prettyResp bytes.Buffer
+	err = json.Indent(&prettyResp, body, "", "  ")
+	if err != nil {
+		http.Error(w, "cannot make it pretty", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(prettyResp.Bytes())
+}
+
+func main() {
+	http.HandleFunc("/", getData)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
