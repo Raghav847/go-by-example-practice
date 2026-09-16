@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/Raghav847/go-by-example-practice/mcs/product-api/data"
 	"github.com/Raghav847/go-by-example-practice/mcs/product-api/handlers"
 )
 
@@ -18,13 +19,20 @@ func main() {
 	flag.Parse()
 
 	l := log.New(os.Stdout, "[products-api]", log.LstdFlags)
+	v := data.NewValidation()
 
-	ph := handlers.NewProducts(l)
+	ph := handlers.NewProducts(l, v)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", ph.GetProducts)
-	mux.HandleFunc("POST /", ph.AddProducts)
-	mux.HandleFunc("PUT /{id}", ph.UpdateProducts)
+	mux.HandleFunc("GET /products", ph.ListAll)
+	mux.Handle(
+		"POST /products",
+		ph.MiddlewareValidateProduct(http.HandlerFunc(ph.Create)),
+	)
+	mux.Handle(
+		"PUT /products",
+		ph.MiddlewareValidateProduct(http.HandlerFunc(ph.Update)),
+	)
 
 	s := http.Server{
 		Addr:         *bindAddress,
