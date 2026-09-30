@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type ShoppingList struct {
@@ -23,16 +26,40 @@ type ListPushAction struct {
 	Item string `json:"item"`
 }
 
-var allData []ShoppingList
+type User struct {
+	Role     string
+	Username string
+	Password string
+}
+
+type Session struct {
+	Expires  time.Time
+	Username string
+}
+
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+var (
+	allData  []ShoppingList = []ShoppingList{}
+	sessions                = map[string]*Session{}
+	allUsers                = map[string]*User{
+		"admin": {"admin", "admin", "password"},
+		"user":  {"user", "user", "password"},
+	}
+)
 
 func main() {
-	http.HandleFunc("GET /v1/lists", handleListLists)
-	http.HandleFunc("GET /v1/lists/{id}", handleGetList)
-	http.HandleFunc("POST /v1/lists", handleCreateList)
-	http.HandleFunc("DELETE /v1/lists/{id}", handleDeleteList)
-	http.HandleFunc("PUT /v1/lists/{id}", handleUpdateList)
-	http.HandleFunc("PATCH /v1/lists/{id}", handlePatchList)
-	http.HandleFunc("POST /v1/lists/{id}/push", handleListPush)
+	http.HandleFunc("GET /lists", authRequired(handleListLists))
+	http.HandleFunc("POST /lists", adminRequired(handleCreateList))
+	http.HandleFunc("GET /lists/{id}", authRequired(handleGetList))
+	http.HandleFunc("PUT /lists/{id}", adminRequired(handleUpdateList))
+	http.HandleFunc("DELETE /lists/{id}", adminRequired(handleDeleteList))
+	http.HandleFunc("PATCH /lists/{id}", adminRequired(handlePatchList))
+	http.HandleFunc("POST /lists/{id}/push", adminRequired(handleListPush))
+	http.HandleFunc("POST /login", handleLogin)
 	fmt.Println("listening on port :8888")
 	log.Fatal(http.ListenAndServe(":8888", nil))
 }
@@ -168,4 +195,63 @@ func handleListPush(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "List not found", http.StatusNotFound)
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	var data LoginRequest
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	user := allUsers[data.Username]
+	if user != nil && user.Password == data.Password {
+		token := strconv.Itoa(rand.Intn(100000000000))
+		sessions[token] = &Session{
+			Expires:  time.Now().Add(7 * 24 * time.Hour),
+			Username: user.Username,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"token": token})
+	}
+	w.WriteHeader(http.StatusUnauthorized)
+}
+
+// middleware
+func authRequired(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		if !strings.HasPrefix(token, "Bearer ") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		token = token[7:]
+		if sessions[token] == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if sessions[token].Expires.Before(time.Now()) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		user := allUsers[sessions[token].Username]
+		if user == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func adminRequired(next http.HandlerFunc) http.HandlerFunc {
+	return authRequired(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		token = token[7:]
+		user := allUsers[sessions[token].Username]
+		if user.Role != "admin" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
 }
