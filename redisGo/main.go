@@ -6,10 +6,14 @@ import (
 )
 
 func main() {
-	s := NewStore()
-	s.Set("a", "42")
-	s.Set("b", "72")
-	s.Delete("a")
+	s := NewStore(2)
+	_ = s.Set("a", "42")
+	_ = s.Set("b", "72")
+
+	if err := s.Set("a", "8"); err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	val, err := s.Get("b")
 	if err != nil {
