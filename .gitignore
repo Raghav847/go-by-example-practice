@@ -21,6 +21,9 @@ dist/
 # Logs
 *.log
 
+# SQLite databases
+rest/ch-04/database.db
+
 # Environment files
 .env
 .env.*

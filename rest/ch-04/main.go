@@ -1,14 +1,18 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
-	"strconv"
+	"os"
 	"strings"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/rs/cors"
 )
 
 type ShoppingList struct {
@@ -33,6 +37,7 @@ type User struct {
 }
 
 type Session struct {
+	Token    string
 	Expires  time.Time
 	Username string
 }
@@ -43,25 +48,64 @@ type LoginRequest struct {
 }
 
 var (
-	allData  []ShoppingList = []ShoppingList{}
-	sessions                = map[string]*Session{}
-	allUsers                = map[string]*User{
+	allUsers = map[string]*User{
 		"admin": {"admin", "admin", "password"},
 		"user":  {"user", "user", "password"},
 	}
+	listsCache *lru.Cache[string, ShoppingList]
 )
 
+var repository *Repository
+
 func main() {
-	http.HandleFunc("GET /lists", authRequired(handleListLists))
-	http.HandleFunc("POST /lists", adminRequired(handleCreateList))
-	http.HandleFunc("GET /lists/{id}", authRequired(handleGetList))
-	http.HandleFunc("PUT /lists/{id}", adminRequired(handleUpdateList))
-	http.HandleFunc("DELETE /lists/{id}", adminRequired(handleDeleteList))
-	http.HandleFunc("PATCH /lists/{id}", adminRequired(handlePatchList))
-	http.HandleFunc("POST /lists/{id}/push", adminRequired(handleListPush))
-	http.HandleFunc("POST /login", handleLogin)
-	fmt.Println("listening on port :8888")
-	log.Fatal(http.ListenAndServe(":8888", nil))
+	var err error
+	listsCache, err = lru.New[string, ShoppingList](128)
+	if err != nil {
+		fmt.Println("unable to initialize the lists cache:", err.Error())
+		os.Exit(1)
+	}
+	repository, err = NewRepository("./database.db")
+	if err != nil {
+		fmt.Println("unable to open the database:", err.Error())
+		os.Exit(1)
+	}
+	if err := repository.Init(); err != nil {
+		fmt.Println("unable to initialize the database: ", err.Error())
+		os.Exit(1)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /lists", addCacheHeaders(authRequired(handleListLists)))
+	mux.HandleFunc("POST /lists", adminRequired(handleCreateList))
+	mux.HandleFunc("GET /lists/{id}", authRequired(handleGetList))
+	mux.HandleFunc("PUT /lists/{id}", adminRequired(handleUpdateList))
+	mux.HandleFunc("DELETE /lists/{id}", adminRequired(handleDeleteList))
+	mux.HandleFunc("PATCH /lists/{id}", adminRequired(handlePatchList))
+	mux.HandleFunc("POST /login", handleLogin)
+
+	corsMiddleware := cors.New(cors.Options{
+		AllowedOrigins: []string{"http://localhost:3000"},
+		AllowedMethods: []string{
+			http.MethodGet,
+			http.MethodPost,
+			http.MethodPut,
+			http.MethodPatch,
+			http.MethodDelete,
+			http.MethodOptions,
+		},
+		AllowedHeaders: []string{
+			"Content-Type",
+			"Authorization",
+		},
+		MaxAge: 300,
+	})
+
+	server := &http.Server{
+		Addr:    ":8888",
+		Handler: corsMiddleware.Handler(mux),
+	}
+
+	fmt.Printf("server started on: %v\n", server.Addr)
+	log.Fatal(server.ListenAndServe())
 }
 
 func handleCreateList(w http.ResponseWriter, r *http.Request) {
@@ -71,8 +115,15 @@ func handleCreateList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	allData = append(allData, list)
+	list.ID = rand.Int()
+
+	err = repository.CreateShoppingList(&list)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
+
 	err = json.NewEncoder(w).Encode(list)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -81,7 +132,13 @@ func handleCreateList(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleListLists(w http.ResponseWriter, r *http.Request) {
-	data, err := json.Marshal(allData)
+	lists, err := repository.GetAllShoppingLists()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data, err := json.Marshal(lists)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -95,124 +152,136 @@ func handleListLists(w http.ResponseWriter, r *http.Request) {
 
 func handleGetList(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	for _, list := range allData {
-		if strconv.Itoa(list.ID) == id {
-			data, err := json.Marshal(list)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			_, err = w.Write(data)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+	list, ok := listsCache.Get(id)
+	if !ok {
+		dbList, err := repository.GetShoppingList(id)
+		if err != nil {
+			http.Error(w, "List not found", http.StatusNotFound)
 			return
 		}
+		listsCache.Add(id, *dbList)
 	}
-	http.Error(w, "List not found", http.StatusNotFound)
+	data, err := json.Marshal(list)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+
+	etag := fmt.Sprintf(`"%x"`, sha256.Sum256(data))
+	if match := r.Header.Get("If-None-Match"); match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("ETag", etag)
+	_, err = w.Write(data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func handleDeleteList(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	for i, list := range allData {
-		if strconv.Itoa(list.ID) == id {
-			allData = append(allData[:i], allData[i+1:]...)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
+	err := repository.DeleteShoppingList(id)
+	if err != nil {
+		http.Error(w, "list not found", http.StatusNotFound)
+		return
 	}
-	http.Error(w, "List not found", http.StatusNotFound)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleUpdateList(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	for i, list := range allData {
-		if strconv.Itoa(list.ID) == id {
-			var updatedList ShoppingList
-			err := json.NewDecoder(r.Body).Decode(&updatedList)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			allData[i] = updatedList
-			if err := json.NewEncoder(w).Encode(updatedList); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			return
-		}
-	}
-	http.Error(w, "List not found", http.StatusNotFound)
-}
-
-func handlePatchList(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	for i, list := range allData {
-		if strconv.Itoa(list.ID) == id {
-			var patch ShoppingListPatch
-			err := json.NewDecoder(r.Body).Decode(&patch)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			if patch.Name != nil {
-				list.Name = *patch.Name
-			}
-			if patch.Items != nil {
-				list.Items = patch.Items
-			}
-			allData[i] = list
-			err = json.NewEncoder(w).Encode(list)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			return
-		}
-	}
-	http.Error(w, "List not found", http.StatusNotFound)
-}
-
-func handleListPush(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	for i, list := range allData {
-		if strconv.Itoa(list.ID) == id {
-			var item ListPushAction
-			err := json.NewDecoder(r.Body).Decode(&item)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			list.Items = append(list.Items, item.Item)
-			allData[i] = list
-			err = json.NewEncoder(w).Encode(list)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			return
-		}
-	}
-	http.Error(w, "List not found", http.StatusNotFound)
-}
-
-func handleLogin(w http.ResponseWriter, r *http.Request) {
-	var data LoginRequest
-	err := json.NewDecoder(r.Body).Decode(&data)
+	var updatedList ShoppingList
+	err := json.NewDecoder(r.Body).Decode(&updatedList)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	err = repository.UpdateShoppingList(id, &updatedList)
+	if err != nil {
+		http.Error(w, "list not found", http.StatusNotFound)
+		return
+	}
+	listsCache.Remove(id)
+
+	if err := json.NewEncoder(w).Encode(updatedList); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func handlePatchList(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var patch ShoppingListPatch
+	err := json.NewDecoder(r.Body).Decode(&patch)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = repository.PatchShoppingList(id, &patch)
+	if err != nil {
+		http.Error(w, "list not found", http.StatusNotFound)
+		return
+	}
+
+	list, err := repository.GetShoppingList(id)
+	if err != nil {
+		http.Error(w, "list not found", http.StatusNotFound)
+		return
+	}
+
+	err = json.NewEncoder(w).Encode(list)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func handleListPush(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var item ListPushAction
+	err := json.NewDecoder(r.Body).Decode(&item)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	list, err := repository.GetShoppingList(id)
+	if err != nil {
+		http.Error(w, "list not found", http.StatusNotFound)
+		return
+	}
+
+	list.Items = append(list.Items, item.Item)
+	err = repository.UpdateShoppingList(id, list)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = json.NewEncoder(w).Encode(list)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	var data LoginRequest
+	json.NewDecoder(r.Body).Decode(&data)
 	user := allUsers[data.Username]
 	if user != nil && user.Password == data.Password {
-		token := strconv.Itoa(rand.Intn(100000000000))
-		sessions[token] = &Session{
-			Expires:  time.Now().Add(7 * 24 * time.Hour),
-			Username: user.Username,
+		session, err := repository.AddSession(user.Username)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"token": token})
+		json.NewEncoder(w).Encode(map[string]string{"token": session.Token})
+		return
 	}
 	w.WriteHeader(http.StatusUnauthorized)
 }
@@ -226,16 +295,8 @@ func authRequired(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		token = token[7:]
-		if sessions[token] == nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if sessions[token].Expires.Before(time.Now()) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		user := allUsers[sessions[token].Username]
-		if user == nil {
+		_, err := repository.GetSession(token)
+		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -247,11 +308,24 @@ func adminRequired(next http.HandlerFunc) http.HandlerFunc {
 	return authRequired(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 		token = token[7:]
-		user := allUsers[sessions[token].Username]
+		session, err := repository.GetSession(token)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		user := allUsers[session.Username]
 		if user.Role != "admin" {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		next(w, r)
 	})
+}
+
+func addCacheHeaders(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Header().Set("Expires", time.Now().Add(5*time.Minute).Format(http.TimeFormat))
+		next(w, r)
+	}
 }
