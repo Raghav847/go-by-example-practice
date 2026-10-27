@@ -1,0 +1,58 @@
+[
+  {
+    "id": 8,
+    "name": "Alberta",
+    "address": "65 Blank Lane",
+    "city": "Chicago, IL",
+    "zip": "60007"
+  },
+  {
+    "id": 4,
+    "name": "Alfred",
+    "address": "2222 Blank Lane",
+    "city": "New York, NY",
+    "zip": "07020"
+  },
+  {
+    "id": 6,
+    "name": "Blaine",
+    "address": "3488 Blank Lane",
+    "city": "Salt Lake City, UT",
+    "zip": "84044"
+  },
+  {
+    "id": 5,
+    "name": "Gonzo",
+    "address": "874 Blank Lane",
+    "city": "Salt Lake City, UT",
+    "zip": "84044"
+  },
+  {
+    "id": 2,
+    "name": "Joe",
+    "address": "345 Blank Lane",
+    "city": "San Francisco, CA",
+    "zip": "94102"
+  },
+  {
+    "id": 7,
+    "name": "Justine",
+    "address": "010102 Blank Lane",
+    "city": "Chicago, IL",
+    "zip": "60007"
+  },
+  {
+    "id": 3,
+    "name": "Mary",
+    "address": "9823 Blank Lane",
+    "city": "New York, NY",
+    "zip": "07020"
+  },
+  {
+    "id": 1,
+    "name": "Zed",
+    "address": "1010 Blank Lane",
+    "city": "San Francisco, CA",
+    "zip": "94102"
+  }
+]

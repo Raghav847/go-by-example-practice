@@ -1,0 +1,26 @@
+{
+  "name": "Chocolate",
+  "ingredients": [
+    {
+      "Name": "Chocolate",
+      "Amount": 1
+    },
+    {
+      "Name": "Butter",
+      "Amount": 2
+    },
+    {
+      "Name": "Flour",
+      "Amount": 2
+    },
+    {
+      "Name": "Eggs",
+      "Amount": 5
+    }
+  ],
+  "description": "A bad chocolate cake",
+  "price": {
+    "dollars": 30,
+    "cents": 99
+  }
+}
