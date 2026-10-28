@@ -1,3 +1,3 @@
 module github.com/Raghav847/go-by-example-practice
 
-go 1.23
+go 1.24
