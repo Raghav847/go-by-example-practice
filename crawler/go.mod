@@ -2,8 +2,4 @@ module crawler
 
 go 1.27.3
 
-require (
-	github.com/PuerkitoBio/goquery v1.13.0 // indirect
-	github.com/andybalholm/cascadia v1.3.4 // indirect
-	golang.org/x/net v0.58.0 // indirect
-)
+require golang.org/x/net v0.62.0 // indirect
